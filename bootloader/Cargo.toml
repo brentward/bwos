@@ -1,0 +1,19 @@
+[package]
+name = "bootloader"
+version = "0.1.0"
+authors = [
+    "Sergio Benitez <sb@sergio.bz>",
+    "Taesoo Kim <taesoo@gatech.edu>",
+    "Yechan Bae <yechan@gatech.edu>",
+    "Sujin Park <sujin.park@gatech.edu>",
+    "Mansour Alharthi <mansourah@gatech.edu>",
+    "Brent Bettis <brent.bettis@gmail.com>",
+]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+pi = { path = "../pi/" }
+shim = { path = "../shim", features = ["no_std"] }
+xmodem = { path = "../xmodem", features = ["no_std"] }

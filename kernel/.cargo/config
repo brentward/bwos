@@ -1,0 +1,13 @@
+[build]
+target = "aarch64-unknown-none"
+
+[target.aarch64-unknown-none]
+rustflags = [
+    "-C", "target-cpu=cortex-a53",
+    "-C", "link-args=--script=.cargo/layout.ld",
+    "-C", "link-args=--no-dynamic-linker",
+]
+
+[unstable]
+build-std = ["core", "compiler_builtins", "alloc"]
+build-std-features = ["compiler-builtins-mem"]
