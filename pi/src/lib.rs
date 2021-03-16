@@ -6,7 +6,7 @@
 
 pub mod atags;
 pub mod common;
-// pub mod framebuffer;
+pub mod framebuffer;
 pub mod gpio;
 pub mod interrupt;
 pub mod local_interrupt;

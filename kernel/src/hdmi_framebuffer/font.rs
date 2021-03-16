@@ -1,4 +1,5 @@
 use core::fmt::Write;
+use super::charset;
 
 #[derive(Copy, Clone, Debug)]
 pub struct CP850Font {

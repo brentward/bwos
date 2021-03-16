@@ -18,7 +18,7 @@ pub mod hdmi_framebuffer;
 pub mod mutex;
 pub mod shell;
 // pub mod framebuffer;
-pub mod videocore;
+// pub mod videocore;
 mod homer;
 
 use console::{kprintln, kprint};

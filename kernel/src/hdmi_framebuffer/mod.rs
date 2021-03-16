@@ -1,12 +1,13 @@
-pub mod freebsd_cp850;
+mod freebsd_cp850;
 mod font;
+mod charset;
 
 pub use console_traits::*;
 use core::sync::atomic::{AtomicUsize, Ordering};
-use pi::videocore_mailbox::VideoCoreMailbox;
+use pi::videocore_mailbox;
 use shim::io;
 use font::CP850Font as Font;
-use crate::videocore_mailbox;
+use charset::Char;
 use crate::homer::{HOMER_DATA, HOMER_HEIGHT, HOMER_WIDTH};
 use crate::mutex::Mutex;
 
@@ -45,10 +46,6 @@ impl FrameBuffer {
 
     pub fn draw_homer(&mut self) {
         self.inner().draw_homer()
-    }
-
-    pub fn print(&mut self, s: &str) {
-        self.inner().print(s)
     }
 
     pub fn set_foreground_color(&mut self, color: &PixelColor) {
@@ -98,7 +95,7 @@ pub static FRAMEBUFFER: Mutex<FrameBuffer> = Mutex::new(FrameBuffer::new());
 struct HDMIFrameBuffer {
     framebuffer_address: usize,
     framebuffer_len: usize,
-    videocore_mailbox: VideoCoreMailbox,
+    videocore_mailbox: videocore_mailbox::VideoCoreMailbox,
     physical_width: usize,
     physical_height: usize,
     virtual_width: usize,
@@ -347,7 +344,7 @@ impl HDMIFrameBuffer {
         } else {
             0
         };
-        self.draw_char(ch_byte);
+        self.draw_char_byte(ch_byte);
     }
 
     fn get_pixel_data(&self, font_byte: u8, index: usize) -> RawPixel {
@@ -400,80 +397,17 @@ impl HDMIFrameBuffer {
                 self.clear_cursor();
             }
             byte => {
-                self.draw_char(byte);
+                self.draw_char_byte(byte);
                 self.cursor_increment();
             }
         }
     }
 
-    pub fn print_char(&mut self, ch: char) {
-        let ch_byte = if ch.is_ascii() {
-            ch as u8
-        } else {
-            0
-        };
-        self.write_byte(ch_byte);
-    }
-
-    pub fn print(&mut self, s: &str) {
-        for ch in s.chars() {
-            self.print_char(ch);
-            // let offset = (self.cursor_y * self.pitch) + (self.cursor_x * (self.bit_depth / 8));
-            // let offset_alt = (self.cursor_y_alt() * self.pitch) + (self.cursor_x * (self.bit_depth / 8));
-            // match ch {
-            //     '\r' => self.cursor_x = 0,
-            //     '\n' => {
-            //         self.cursor_x = 0;
-            //         self.next_line();
-            //     }
-            //     ch => {
-            //         self.draw_char(ch);
-            //         self.cursor_increment();
-            //         // self.cursor_x += self.font.char_width;
-            //         // //todo make sure character isn't half off screen
-            //         // if self.cursor_x >= self.columns * self.font.char_width {
-            //         //     self.cursor_x = 0;
-            //         //     self.next_line();
-            //         // }
-            //
-            //
-            //         // let char_value = ch as usize;
-            //         // if char_value < (FONT_DATA.len() / BYTES_PER_GLYPH) {
-            //         //     let glyph_index_start = char_value * BYTES_PER_GLYPH;
-            //         //     for line_index in 0..FONT_HEIGHT {
-            //         //         for pixel_index in 0..FONT_WIDTH {
-            //         //             let pixel_offset = (pixel_index * (self.bit_depth / 8)) + (line_index * self.pitch);
-            //         //             let glyph_byte: u8 = FONT_DATA[glyph_index_start + (line_index * bytes_per_line)];
-            //         //             let mut current_pixel = (self.framebuffer_address + offset + pixel_offset) as *mut RawPixel;
-            //         //             let mut alternate_pixel = (self.framebuffer_address + offset_alt + pixel_offset) as *mut RawPixel;
-            //         //             let pixel = self.get_pixel_data(glyph_byte, pixel_index);
-            //         //             unsafe {
-            //         //                 *current_pixel = pixel;
-            //         //                 *alternate_pixel = pixel;
-            //         //             }
-            //         //         }
-            //         //     }
-            //         //     self.cursor_x += FONT_WIDTH;
-            //         //     if self.cursor_x >= self.physical_width {
-            //         //         self.cursor_x = 0;
-            //         //         self.next_line();
-            //         //     }
-            //         //
-            //         //
-            //         // } else {
-            //         //     kprintln!("Character out of bounds of font");
-            //         // }
-            //     }
-            // }
-
-        }
-    }
-
-    fn draw_char(&self, ch_byte: u8) {
+    fn draw_char_byte(&self, char_byte: u8) {
         let offset = (self.cursor_y * self.pitch) + (self.cursor_x * (self.bit_depth / 8));
         let offset_alt = (self.cursor_y_alt() * self.pitch) + (self.cursor_x * (self.bit_depth / 8));
         for line_index in 0..self.font.char_height {
-            let char_line_byte = self.font.get_byte(ch_byte, line_index);
+            let char_line_byte = self.font.get_byte(char_byte, line_index);
             for pixel_index in 0..self.font.char_width {
                 let pixel_offset = (pixel_index * (self.bit_depth / 8)) + (line_index * self.pitch);
                 let mut current_pixel = (self.framebuffer_address + offset + pixel_offset) as *mut RawPixel;
@@ -490,7 +424,8 @@ impl HDMIFrameBuffer {
 
 impl core::fmt::Write for HDMIFrameBuffer {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        for &byte in s.as_bytes() {
+        for ch in s.chars() {
+            let byte  = Char::map_char(ch) as u8;
             if byte == b'\n' && self.cursor_x != 0 {
                 self.write_byte(b'\r');
             }
@@ -498,14 +433,6 @@ impl core::fmt::Write for HDMIFrameBuffer {
         }
         Ok(())
     }
-
-    // fn write_char(&mut self, c: char) -> core::fmt::Result {
-    //     if c == '\n' {
-    //         self.print_char('\r');
-    //     }
-    //     kyself.print_char(c);
-    //     Ok(())
-    // }
 }
 
 impl io::Write for HDMIFrameBuffer {
