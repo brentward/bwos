@@ -22,23 +22,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4785bdd1c96b2a846b2bd7cc02e86b6b3dbf14e7e53446c4f54c92a361040822"
 
 [[package]]
-name = "console-traits"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f711b3d1d5c3f7ae7d6428901c0f3e5d5f5c800fcfac86bf0252e96373a2cec6"
-
-[[package]]
-name = "const-ft"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "990f5aebce907dc6f5e50e19b05e1095994b855a1ddd2aba8d4f2ec6802e59fd"
-
-[[package]]
 name = "kernel"
 version = "0.1.0"
 dependencies = [
- "console-traits",
- "const-ft",
  "pi",
  "shim",
  "stack-vec",

@@ -17,9 +17,9 @@ edition = "2018"
 pi = { path = "../pi" }
 shim = { path = "../shim", features = ["no_std"] }
 stack-vec = { path = "../stack-vec/" }
-console-traits = "0.3.0"
-const-ft = { version = "0.1", features = ["const_fn"] }
-
+#console-traits = "0.3.0"
+#const-ft = { version = "0.1", features = ["const_fn"] }
+#
 
 [dev-dependencies]
 shim = { path = "../shim"}

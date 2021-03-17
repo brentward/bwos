@@ -3,7 +3,7 @@ use stack_vec::StackVec;
 use pi::atags::Atags;
 
 use crate::console::{kprint, kprintln, CONSOLE};
-use crate::hdmi_framebuffer::FRAMEBUFFER;
+use crate::framebuffer::FRAMEBUFFER;
 
 /// Error type for `Command` parse failures.
 #[derive(Debug)]

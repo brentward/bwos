@@ -1,98 +1,12 @@
-mod freebsd_cp850;
-mod font;
-mod charset;
-
-pub use console_traits::*;
-use core::sync::atomic::{AtomicUsize, Ordering};
-use pi::videocore_mailbox;
+use core::fmt;
 use shim::io;
-use font::CP850Font as Font;
-use charset::Char;
-use crate::homer::{HOMER_DATA, HOMER_HEIGHT, HOMER_WIDTH};
-use crate::mutex::Mutex;
 
+use crate::videocore_mailbox;
+use crate::homer::{HOMER_HEIGHT, HOMER_WIDTH, HOMER_DATA};
+use crate::font::{CR, LF, BELL, BACK, DEL, CP850Font as Font};
+use crate::font::charset::Char;
 
-pub const HORIZONTAL_RESOLUTION: u32 = 840;
-pub const VERTICAL_RESOLUTION: u32 = 525;
-pub const COLOR_DEPTH: u32 = 32;
-pub const VIRTUAL_VERTICAL_MULTIPLIER: u32 = 3;
-pub const BYTES_PER_CHAR: usize = 16;
-
-#[repr(C)]
-pub struct FrameBuffer {
-    inner: Option<HDMIFrameBuffer>,
-}
-
-impl FrameBuffer {
-    const fn new() -> FrameBuffer {
-        FrameBuffer { inner: None }
-    }
-    fn initialize(&mut self, config: HDMIConfig) {
-        match self.inner {
-            None => self.inner = Some(HDMIFrameBuffer::new(config)),
-            _ => (),
-        }
-    }
-
-    fn inner(&mut self) -> &mut HDMIFrameBuffer {
-        match self.inner {
-            Some(ref mut framebuffer) => framebuffer,
-            _ => {
-                self.initialize(HDMIConfig::new(HORIZONTAL_RESOLUTION, VERTICAL_RESOLUTION, COLOR_DEPTH, VIRTUAL_VERTICAL_MULTIPLIER));
-                self.inner()
-            }
-        }
-    }
-
-    pub fn draw_homer(&mut self) {
-        self.inner().draw_homer()
-    }
-
-    pub fn set_foreground_color(&mut self, color: &PixelColor) {
-        self.inner().foreground_color.red = color.red;
-        self.inner().foreground_color.green = color.green;
-        self.inner().foreground_color.blue = color.blue;
-        self.inner().foreground_color.alpha = color.alpha;
-    }
-
-    pub fn set_background_color(&mut self, color: &PixelColor) {
-        self.inner().background_color.red = color.red;
-        self.inner().background_color.green = color.green;
-        self.inner().background_color.blue = color.blue;
-        self.inner().background_color.alpha = color.alpha;
-    }
-    pub fn clear(&mut self) {
-        self.inner().clear();
-    }
-
-    pub fn write_byte(&mut self, byte: u8) {
-        self.inner().write_byte(byte)
-    }
-
-    pub fn draw_cursor(&mut self) {
-        self.inner().draw_cursor()
-    }
-}
-
-impl io::Write for FrameBuffer {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.inner().write(buf)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-impl core::fmt::Write for FrameBuffer {
-    fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        self.inner().write_str(s)
-    }
-}
-
-pub static FRAMEBUFFER: Mutex<FrameBuffer> = Mutex::new(FrameBuffer::new());
-
-struct HDMIFrameBuffer {
+pub struct HDMIFrameBuffer {
     framebuffer_address: usize,
     framebuffer_len: usize,
     videocore_mailbox: videocore_mailbox::VideoCoreMailbox,
@@ -107,8 +21,8 @@ struct HDMIFrameBuffer {
     pitch: usize,
     cursor_x: usize,
     cursor_y: usize,
-    foreground_color: PixelColor,
-    background_color: PixelColor,
+    pub foreground_color: PixelColor,
+    pub background_color: PixelColor,
     font: Font,
     cursor: char,
     columns: usize,
@@ -203,6 +117,32 @@ impl HDMIFrameBuffer {
         }
     }
 
+    pub fn write_byte(&mut self, byte: u8) {
+        match byte {
+            CR => {
+                self.clear_cursor();
+                self.cursor_x = 0;
+            },
+            LF => {
+                self.next_line();
+            }
+            DEL => {
+                self.clear_cursor();
+                self.cursor_decrement();
+                self.clear_cursor();
+            }
+            BACK => {
+                self.clear_cursor();
+                self.cursor_decrement();
+                self.clear_cursor();
+            }
+            byte => {
+                self.draw_char_byte(byte);
+                self.cursor_increment();
+            }
+        }
+    }
+
     pub fn draw_homer(&mut self) {
         let mut offset = (self.cursor_y * self.pitch) + (self.cursor_x * (self.bit_depth / 8));
         let mut offset_alt = (self.cursor_y_alt() * self.pitch) + (self.cursor_x * (self.bit_depth / 8));
@@ -241,12 +181,12 @@ impl HDMIFrameBuffer {
         self.cursor_y += HOMER_HEIGHT;
     }
 
-    fn clear(&self) {
+    pub fn clear(&self) {
         self.clear_lines(0, self.virtual_height);
     }
 
     fn clear_lines(&self, line: usize, count: usize) {
-        let color = self.get_background_pixel();
+        let color = self.get_raw_pixel(&self.background_color);
         let color_bytes = color.0.to_be_bytes();
         let block_bytes = [
             color_bytes[0], color_bytes[1], color_bytes[2], color_bytes[3],
@@ -281,7 +221,7 @@ impl HDMIFrameBuffer {
             self.cursor_y = (self.cursor_y + self.alt_offset()) % self.virtual_height;
             self.virtual_offset_y = (self.virtual_offset_y + self.alt_offset()) % self.virtual_height;
         }
-        let clear_pixel = self.get_background_pixel();
+        let clear_pixel = self.get_raw_pixel(&self.background_color);
         self.clear_lines(self.cursor_y, self.font.char_height);
         self.clear_lines(self.cursor_y_alt(), self.font.char_height);
         if self.cursor_y >= self.virtual_offset_y + self.physical_height {
@@ -322,7 +262,7 @@ impl HDMIFrameBuffer {
     }
 
     fn clear_cursor(&self) {
-        let pixel = self.get_background_pixel();
+        let pixel = self.get_raw_pixel(&self.background_color);
         let offset = (self.cursor_y * self.pitch) + (self.cursor_x * (self.bit_depth / 8));
         let offset_alt = (self.cursor_y_alt() * self.pitch) + (self.cursor_x * (self.bit_depth / 8));
         for line_index in 0..self.font.char_height {
@@ -338,7 +278,7 @@ impl HDMIFrameBuffer {
         }
     }
 
-    fn draw_cursor(&self) {
+    pub fn draw_cursor(&self) {
         let ch_byte = if self.cursor.is_ascii() {
             self.cursor as u8
         } else {
@@ -347,59 +287,66 @@ impl HDMIFrameBuffer {
         self.draw_char_byte(ch_byte);
     }
 
+    pub fn get_raw_pixel(&self, pixel: &PixelColor) -> RawPixel {
+        match self.pixel_order {
+            videocore_mailbox::PixelOrder::RBG => {
+                unsafe { ::core::mem::transmute(RGBPixel::from(pixel)) }
+            }
+            videocore_mailbox::PixelOrder::BGR => {
+                unsafe { ::core::mem::transmute(BGRPixel::from(pixel)) }
+            }
+        }
+
+    }
+
+    pub fn set_pixel(&self, x: usize, y: usize, pixel: RawPixel) -> Result<(), ()> {
+        if x >= self.virtual_width || y >= self.virtual_height {
+            Err(())
+        } else {
+            let offset = y * self.pitch + (x * (self.bit_depth / 8));
+            let mut current_pixel = (self.framebuffer_address + offset) as *mut RawPixel;
+            unsafe { *current_pixel = pixel }
+            Ok(())
+        }
+    }
+
+    pub fn physical_width(&self) -> usize {
+        self.physical_width
+    }
+
+    pub fn physical_height(&self) -> usize {
+        self.physical_height
+    }
+
+    pub fn virtual_width(&self) -> usize {
+        self.virtual_width
+    }
+
+    pub fn virtual_height(&self) -> usize {
+        self.virtual_height
+    }
+
+    pub fn virtual_offset_x(&self) -> usize {
+        self.virtual_offset_x
+    }
+
+    pub fn virtual_offset_y(&self) -> usize {
+        self.virtual_offset_y
+    }
+
+    pub fn cursor_x(&self) -> usize {
+        self.cursor_x
+    }
+
+    pub fn cursor_y(&self) -> usize {
+        self.cursor_y
+    }
+
     fn get_pixel_data(&self, font_byte: u8, index: usize) -> RawPixel {
         if index > 7 { panic!("pixel index is out of expected bounds for FontByte (>7)") }
         match (font_byte & (1 << (7 - index))) == 0 {
-            true => self.get_background_pixel(),
-            false => self.get_foreground_pixel(),
-        }
-    }
-
-    fn get_background_pixel(&self) -> RawPixel {
-        match self.pixel_order {
-            videocore_mailbox::PixelOrder::RBG => {
-                unsafe { ::core::mem::transmute(RGBPixel::from(&self.background_color)) }
-            }
-            videocore_mailbox::PixelOrder::BGR => {
-                unsafe { ::core::mem::transmute(BGRPixel::from(&self.background_color)) }
-            }
-        }
-    }
-
-    fn get_foreground_pixel(&self) -> RawPixel {
-        match self.pixel_order {
-            videocore_mailbox::PixelOrder::RBG => {
-                unsafe { ::core::mem::transmute(RGBPixel::from(&self.foreground_color)) }
-            }
-            videocore_mailbox::PixelOrder::BGR => {
-                unsafe { ::core::mem::transmute(BGRPixel::from(&self.foreground_color)) }
-            }
-        }
-    }
-
-    pub fn write_byte(&mut self, byte: u8) {
-        match byte {
-            Font::CR => {
-                self.clear_cursor();
-                self.cursor_x = 0;
-            },
-            Font::LF => {
-                self.next_line();
-            }
-            Font::DEL => {
-                self.clear_cursor();
-                self.cursor_decrement();
-                self.clear_cursor();
-            }
-            Font::BACK => {
-                self.clear_cursor();
-                self.cursor_decrement();
-                self.clear_cursor();
-            }
-            byte => {
-                self.draw_char_byte(byte);
-                self.cursor_increment();
-            }
+            true => self.get_raw_pixel(&self.background_color),
+            false => self.get_raw_pixel(&self.foreground_color),
         }
     }
 
@@ -472,11 +419,6 @@ impl HDMIConfig {
 }
 
 
-/// This structure describes the attributes for a Char.
-/// They're all packed into 8 bits to save RAM.
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub struct Attr(u8);
-
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Color {
     White = 7,
@@ -488,16 +430,6 @@ pub enum Color {
     Blue = 1,
     Black = 0,
 }
-
-/// A point on the screen.
-/// The arguments are X (column), Y (row)
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub struct Point(pub usize, pub usize);
-
-// #[derive(Copy, Clone)]
-// pub struct TextRow {
-//     pub glyphs: [(Char, Attr); TEXT_NUM_COLS],
-// }
 
 #[repr(C)]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]

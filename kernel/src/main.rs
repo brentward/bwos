@@ -14,25 +14,18 @@
 mod init;
 
 pub mod console;
-pub mod hdmi_framebuffer;
+pub mod framebuffer;
 pub mod mutex;
 pub mod shell;
-// pub mod framebuffer;
-// pub mod videocore;
-mod homer;
 
 use console::{kprintln, kprint};
 use pi::{timer, videocore_mailbox};
 use core::time::Duration;
-use core::str::{from_utf8};
-use shim::io::Write;
 
-use hdmi_framebuffer::{FRAMEBUFFER, PixelColor};
-use pi::videocore_mailbox::MailboxChannel::Framebuffer;
 
 fn kmain() -> ! {
     timer::spin_sleep(Duration::from_millis(100));
-    FRAMEBUFFER.lock().draw_homer();
+    framebuffer::FRAMEBUFFER.lock().draw_homer();
     kprintln!("\nWelcome to Brentward OS");
     // FRAMEBUFFER.lock().clear();
     // FRAMEBUFFER.lock().print("Hello world\n");
