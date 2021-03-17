@@ -50,7 +50,7 @@
 /// LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
 /// OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 /// SUCH DAMAGE.
-pub static FONT_DATA: [u8; 256 * super::BYTES_PER_GLYPH] = [
+pub static FONT_DATA: [u8; 256 * crate::font::TeleTextFont::BYTES_PER_CHAR] = [
     // Control Characters C0
 
     // Char::Null

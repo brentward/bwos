@@ -24,7 +24,7 @@ impl<T> Mutex<T> {
     pub const fn new(val: T) -> Mutex<T> {
         Mutex {
             lock: AtomicBool::new(false),
-            owner: AtomicUsize::new(usize::max_value()),
+            owner: AtomicUsize::new(usize::MAX),
             data: UnsafeCell::new(val)
         }
     }

@@ -3,7 +3,7 @@ use pi::uart::MiniUart;
 use shim::io;
 
 use crate::mutex::Mutex;
-use crate::hdmi_framebuffer::FRAMEBUFFER;
+use crate::framebuffer::FRAMEBUFFER;
 
 /// A global singleton allowing read/write access to the console.
 pub struct Console {
