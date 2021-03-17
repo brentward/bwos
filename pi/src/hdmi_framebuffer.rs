@@ -1,14 +1,12 @@
-use core::fmt;
 use shim::io;
 
 use crate::videocore_mailbox;
 use crate::homer::{HOMER_HEIGHT, HOMER_WIDTH, HOMER_DATA};
-use crate::font::{CR, LF, BELL, BACK, DEL, CP850Font as Font};
+use crate::font::{CR, LF, BACK, DEL, CP850Font as Font};
 use crate::font::charset::Char;
 
 pub struct HDMIFrameBuffer {
     framebuffer_address: usize,
-    framebuffer_len: usize,
     videocore_mailbox: videocore_mailbox::VideoCoreMailbox,
     physical_width: usize,
     physical_height: usize,
@@ -26,7 +24,6 @@ pub struct HDMIFrameBuffer {
     font: Font,
     cursor: char,
     columns: usize,
-    rows: usize,
 }
 
 impl HDMIFrameBuffer {
@@ -79,15 +76,14 @@ impl HDMIFrameBuffer {
             Err(_) => panic!("mailbox.call() error"),
         }
 
-        let framebuffer_address = (mailbox_buf.tag_sequence[26] as usize & 0x3fff_ffff);
-        let framebuffer_len = mailbox_buf.tag_sequence[27] as usize;
+        let framebuffer_address = mailbox_buf.tag_sequence[26] as usize & 0x3fff_ffff;
+        let _framebuffer_len = mailbox_buf.tag_sequence[27] as usize;
         let physical_width = mailbox_buf.tag_sequence[3] as usize;
         let physical_height = mailbox_buf.tag_sequence[4] as usize;
         let virtual_width = mailbox_buf.tag_sequence[8] as usize;
         let virtual_height = mailbox_buf.tag_sequence[9] as usize;
         let virtual_offset_x = mailbox_buf.tag_sequence[13] as usize;
         let virtual_offset_y = mailbox_buf.tag_sequence[14] as usize;
-        let mirror_offset = ((virtual_height / physical_height) - 1) * physical_height;
         let bit_depth = mailbox_buf.tag_sequence[18] as usize;
         let pixel_order = videocore_mailbox::PixelOrder::from(mailbox_buf.tag_sequence[22]);
         let pitch = mailbox_buf.tag_sequence[31] as usize;
@@ -95,7 +91,6 @@ impl HDMIFrameBuffer {
         let font = Font::new();
         HDMIFrameBuffer {
             framebuffer_address,
-            framebuffer_len,
             videocore_mailbox,
             physical_width,
             physical_height,
@@ -113,7 +108,6 @@ impl HDMIFrameBuffer {
             font,
             cursor: '_',
             columns: physical_width / font.char_width,
-            rows: physical_height / font.char_height,
         }
     }
 
@@ -143,9 +137,76 @@ impl HDMIFrameBuffer {
         }
     }
 
+    pub fn clear(&self) {
+        self.clear_lines(0, self.virtual_height);
+    }
+
+    pub fn draw_cursor(&self) {
+        let ch_byte = if self.cursor.is_ascii() {
+            self.cursor as u8
+        } else {
+            0
+        };
+        self.draw_char_byte(ch_byte);
+    }
+
+    pub fn get_raw_pixel(&self, color: &PixelColor) -> RawPixel {
+        match self.pixel_order {
+            videocore_mailbox::PixelOrder::RBG => {
+                unsafe { ::core::mem::transmute(RGBPixel::from(color)) }
+            }
+            videocore_mailbox::PixelOrder::BGR => {
+                unsafe { ::core::mem::transmute(BGRPixel::from(color)) }
+            }
+        }
+    }
+
+    pub fn set_pixel(&self, x: usize, y: usize, pixel: RawPixel) -> Result<(), ()> {
+        if x >= self.virtual_width || y >= self.virtual_height {
+            Err(())
+        } else {
+            let offset = y * self.pitch + (x * (self.bit_depth / 8));
+            let current_pixel = (self.framebuffer_address + offset) as *mut RawPixel;
+            unsafe { *current_pixel = pixel }
+            Ok(())
+        }
+    }
+
+    pub fn physical_width(&self) -> usize {
+        self.physical_width
+    }
+
+    pub fn physical_height(&self) -> usize {
+        self.physical_height
+    }
+
+    pub fn virtual_width(&self) -> usize {
+        self.virtual_width
+    }
+
+    pub fn virtual_height(&self) -> usize {
+        self.virtual_height
+    }
+
+    pub fn virtual_offset_x(&self) -> usize {
+        self.virtual_offset_x
+    }
+
+    pub fn virtual_offset_y(&self) -> usize {
+        self.virtual_offset_y
+    }
+
+    pub fn cursor_x(&self) -> usize {
+        self.cursor_x
+    }
+
+    pub fn cursor_y(&self) -> usize {
+        self.cursor_y
+    }
+
     pub fn draw_homer(&mut self) {
-        let mut offset = (self.cursor_y * self.pitch) + (self.cursor_x * (self.bit_depth / 8));
-        let mut offset_alt = (self.cursor_y_alt() * self.pitch) + (self.cursor_x * (self.bit_depth / 8));
+        let offset = (self.cursor_y * self.pitch) + (self.cursor_x * (self.bit_depth / 8));
+        let offset_alt = (self.cursor_y_alt() * self.pitch) + (self.cursor_x * (self.bit_depth / 8));
 
         let mut pixel_address = self.framebuffer_address + offset;
         let mut pixel_address_alt = self.framebuffer_address + offset_alt;
@@ -153,8 +214,8 @@ impl HDMIFrameBuffer {
         let mut homer_offset = 0;
         for _ in 0..HOMER_HEIGHT {
             for _ in 0..HOMER_WIDTH {
-                let mut pixel = pixel_address as *mut RawPixel;
-                let mut pixel_alt = pixel_address_alt as *mut RawPixel;
+                let pixel = pixel_address as *mut RawPixel;
+                let pixel_alt = pixel_address_alt as *mut RawPixel;
                 let pixel_color = PixelColor {
                     red: (((HOMER_DATA[homer_offset] - 33) << 2) | ((HOMER_DATA[homer_offset + 1] - 33) >> 4)),
                     green: ((((HOMER_DATA[homer_offset + 1] - 33) & 0xf) << 4) | ((HOMER_DATA[homer_offset + 2] - 33) >> 2)),
@@ -174,15 +235,13 @@ impl HDMIFrameBuffer {
                     *pixel_alt = homer_pixel;
                 }
                 homer_offset += 4;
-                pixel_address += (self.bit_depth / 8);
+                pixel_address += self.bit_depth / 8;
+                pixel_address_alt += self.bit_depth / 8;
             }
             pixel_address += self.pitch - (HOMER_WIDTH * (self.bit_depth / 8));
+            pixel_address_alt += self.pitch - (HOMER_WIDTH * (self.bit_depth / 8));
         }
         self.cursor_y += HOMER_HEIGHT;
-    }
-
-    pub fn clear(&self) {
-        self.clear_lines(0, self.virtual_height);
     }
 
     fn clear_lines(&self, line: usize, count: usize) {
@@ -221,11 +280,28 @@ impl HDMIFrameBuffer {
             self.cursor_y = (self.cursor_y + self.alt_offset()) % self.virtual_height;
             self.virtual_offset_y = (self.virtual_offset_y + self.alt_offset()) % self.virtual_height;
         }
-        let clear_pixel = self.get_raw_pixel(&self.background_color);
         self.clear_lines(self.cursor_y, self.font.char_height);
         self.clear_lines(self.cursor_y_alt(), self.font.char_height);
+        // while self.cursor_y + self.font.char_height >= self.virtual_offset_y + self.physical_height {
+        //     let mut new_virtual_offset_y= self.virtual_offset_y + 1;
+        //     let mut mailbox_buf = videocore_mailbox::MailboxBuf::new();
+        //     mailbox_buf.tag_sequence[0] = videocore_mailbox::MailboxTag::SetVirtualOffset as u32;
+        //     mailbox_buf.tag_sequence[1] = 8;
+        //     mailbox_buf.tag_sequence[2] = 8;
+        //     mailbox_buf.tag_sequence[3] = self.virtual_offset_x as u32;
+        //     mailbox_buf.tag_sequence[4] = new_virtual_offset_y as u32;
+        //     mailbox_buf.prepare_buf(5);
+        //     let channel = videocore_mailbox::MailboxChannel::PropertyARMToVC;
+        //
+        //     match self.videocore_mailbox.call(channel, &mailbox_buf) {
+        //         Ok(_) => (),
+        //         Err(_) => panic!("mailbox.call() error"),
+        //     }
+        //     self.virtual_offset_x = mailbox_buf.tag_sequence[3] as usize;
+        //     self.virtual_offset_y = mailbox_buf.tag_sequence[4] as usize;
+        // }
         if self.cursor_y >= self.virtual_offset_y + self.physical_height {
-            let mut new_virtual_offset_y = self.cursor_y - (self.physical_height - self.font.char_height);
+            let new_virtual_offset_y = self.cursor_y - (self.physical_height - self.font.char_height);
             let mut mailbox_buf = videocore_mailbox::MailboxBuf::new();
             mailbox_buf.tag_sequence[0] = videocore_mailbox::MailboxTag::SetVirtualOffset as u32;
             mailbox_buf.tag_sequence[1] = 8;
@@ -268,78 +344,14 @@ impl HDMIFrameBuffer {
         for line_index in 0..self.font.char_height {
             for pixel_index in 0..self.font.char_width {
                 let pixel_offset = (pixel_index * (self.bit_depth / 8)) + (line_index * self.pitch);
-                let mut current_pixel = (self.framebuffer_address + offset + pixel_offset) as *mut RawPixel;
-                let mut alternate_pixel = (self.framebuffer_address + offset_alt + pixel_offset) as *mut RawPixel;
+                let current_pixel = (self.framebuffer_address + offset + pixel_offset) as *mut RawPixel;
+                let alternate_pixel = (self.framebuffer_address + offset_alt + pixel_offset) as *mut RawPixel;
                 unsafe {
                     *current_pixel = pixel;
                     *alternate_pixel = pixel;
                 }
             }
         }
-    }
-
-    pub fn draw_cursor(&self) {
-        let ch_byte = if self.cursor.is_ascii() {
-            self.cursor as u8
-        } else {
-            0
-        };
-        self.draw_char_byte(ch_byte);
-    }
-
-    pub fn get_raw_pixel(&self, pixel: &PixelColor) -> RawPixel {
-        match self.pixel_order {
-            videocore_mailbox::PixelOrder::RBG => {
-                unsafe { ::core::mem::transmute(RGBPixel::from(pixel)) }
-            }
-            videocore_mailbox::PixelOrder::BGR => {
-                unsafe { ::core::mem::transmute(BGRPixel::from(pixel)) }
-            }
-        }
-
-    }
-
-    pub fn set_pixel(&self, x: usize, y: usize, pixel: RawPixel) -> Result<(), ()> {
-        if x >= self.virtual_width || y >= self.virtual_height {
-            Err(())
-        } else {
-            let offset = y * self.pitch + (x * (self.bit_depth / 8));
-            let mut current_pixel = (self.framebuffer_address + offset) as *mut RawPixel;
-            unsafe { *current_pixel = pixel }
-            Ok(())
-        }
-    }
-
-    pub fn physical_width(&self) -> usize {
-        self.physical_width
-    }
-
-    pub fn physical_height(&self) -> usize {
-        self.physical_height
-    }
-
-    pub fn virtual_width(&self) -> usize {
-        self.virtual_width
-    }
-
-    pub fn virtual_height(&self) -> usize {
-        self.virtual_height
-    }
-
-    pub fn virtual_offset_x(&self) -> usize {
-        self.virtual_offset_x
-    }
-
-    pub fn virtual_offset_y(&self) -> usize {
-        self.virtual_offset_y
-    }
-
-    pub fn cursor_x(&self) -> usize {
-        self.cursor_x
-    }
-
-    pub fn cursor_y(&self) -> usize {
-        self.cursor_y
     }
 
     fn get_pixel_data(&self, font_byte: u8, index: usize) -> RawPixel {
@@ -357,8 +369,8 @@ impl HDMIFrameBuffer {
             let char_line_byte = self.font.get_byte(char_byte, line_index);
             for pixel_index in 0..self.font.char_width {
                 let pixel_offset = (pixel_index * (self.bit_depth / 8)) + (line_index * self.pitch);
-                let mut current_pixel = (self.framebuffer_address + offset + pixel_offset) as *mut RawPixel;
-                let mut alternate_pixel = (self.framebuffer_address + offset_alt + pixel_offset) as *mut RawPixel;
+                let current_pixel = (self.framebuffer_address + offset + pixel_offset) as *mut RawPixel;
+                let alternate_pixel = (self.framebuffer_address + offset_alt + pixel_offset) as *mut RawPixel;
                 let pixel = self.get_pixel_data(char_line_byte, pixel_index);
                 unsafe {
                     *current_pixel = pixel;

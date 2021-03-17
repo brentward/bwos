@@ -13,41 +13,36 @@
 #[cfg(not(test))]
 mod init;
 
+extern crate alloc;
+
+pub mod allocator;
 pub mod console;
 pub mod framebuffer;
 pub mod mutex;
+pub mod param;
 pub mod shell;
 
-use console::{kprintln, kprint};
-use pi::{timer, videocore_mailbox};
-use core::time::Duration;
+use console::kprintln;
+use alloc::string;
 
+use allocator::Allocator;
+
+#[cfg_attr(not(test), global_allocator)]
+pub static ALLOCATOR: Allocator = Allocator::uninitialized();
 
 fn kmain() -> ! {
-    timer::spin_sleep(Duration::from_millis(100));
+    unsafe {
+        ALLOCATOR.initialize();
+    }
+
     framebuffer::FRAMEBUFFER.lock().draw_homer();
-    kprintln!("\nWelcome to Brentward OS");
-    // FRAMEBUFFER.lock().clear();
-    // FRAMEBUFFER.lock().print("Hello world\n");
-    // FRAMEBUFFER.lock().print("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyx1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyx1234567890\n");
-    // let random_generator = pi::rng::Rng::new();
-    // for hundreds in 48u8..58 {
-    //     for tens in 48u8..58 {
-    //         for ones in 48u8..58 {
-    //             let byte_array = [hundreds, tens, ones];
-    //             let number = from_utf8(&byte_array).expect("Invalid UTF-8");
-    //             FRAMEBUFFER.lock().print("line: ");
-    //             FRAMEBUFFER.lock().print(number);
-    //             FRAMEBUFFER.lock().print(" -- ");
-    //
-    //             let mut str_array = [0u8, 0, 0, 10];
-    //             str_array[0] = random_generator.rand(33, 127) as u8;
-    //             str_array[1] = random_generator.rand(33, 127) as u8;
-    //             str_array[2] = random_generator.rand(33, 127) as u8;
-    //             let message = from_utf8(&str_array).expect("Invalid UTF-8 string");
-    //             FRAMEBUFFER.lock().print(message);
-    //         }
-    //     }
+    kprintln!("Welcome to Brentward OS");
+    let mut allocated_string = string::String::from("This is a string on the heap");
+    kprintln!("{}", allocated_string);
+    allocated_string.push_str(": this has been pushed into it");
+    kprintln!("{}", allocated_string);
+    // for line in 0..1000 {
+    //     kprintln!("line: {}", line);
     // }
     shell::shell("> ");
 }

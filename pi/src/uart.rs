@@ -188,6 +188,7 @@ impl fmt::Write for MiniUart {
 mod uart_io {
     use super::io;
     use super::MiniUart;
+    #[allow(unused_imports)]
     use volatile::prelude::*;
 
     impl io::Read for MiniUart {

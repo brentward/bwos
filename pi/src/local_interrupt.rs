@@ -93,7 +93,7 @@ pub struct LocalController {
 impl LocalController {
     /// Returns a new handle to the interrupt controller.
     pub fn new(core: usize) -> LocalController {
-        let mut local_controller = LocalController {
+        let local_controller = LocalController {
             core: core,
             registers: unsafe { &mut *(INT_BASE as *mut Registers) },
         };

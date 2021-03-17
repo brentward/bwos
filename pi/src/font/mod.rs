@@ -2,8 +2,6 @@ pub mod charset;
 mod freebsd_cp850;
 mod freebsd_teletext;
 
-use core::fmt::Write;
-
 pub const CR: u8 = b'\r';
 pub const LF: u8 = b'\n';
 pub const BELL: u8 = 7;

@@ -1,7 +1,7 @@
 use crate::common::IO_BASE;
 
 use volatile::{WriteVolatile, prelude::*};
-use volatile::{ReadVolatile, Volatile, Reserved};
+use volatile::{ReadVolatile, Reserved};
 use aarch64::*;
 
 /// The base address for the VideoCore Mailbox registers.

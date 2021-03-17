@@ -833,7 +833,6 @@ impl Char {
             Char::SuperscriptTwo => '²',
             Char::BlackSquare => '■',
             Char::NoBreakSpace => '\u{00a0}',
-            _ => '�',
         }
 
     }
